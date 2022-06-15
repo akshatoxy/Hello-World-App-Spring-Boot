@@ -1,0 +1,9 @@
+# IDE files
+.idea/
+.settings/
+
+# Dependency files
+target/
+
+.project
+.classpath
