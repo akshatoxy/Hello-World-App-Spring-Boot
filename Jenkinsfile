@@ -1,9 +1,19 @@
 pipeline {
   agent any
   stages {
-    stage("test jenkins server") {
+    stage("compile") {
       steps {
-        echo "Hello There"
+        sh "mvn compile"
+      }
+    }
+    stage("test") {
+      steps {
+        sh "mvn test"
+      }
+    }
+    stage("package") {
+      steps {
+        sh "mvn package"
       }
     }
   }
