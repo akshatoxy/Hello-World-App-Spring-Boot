@@ -29,7 +29,9 @@
 - After that run `sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo`,
 `sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key` and `sudo yum upgrade` to add the repositories locally. Then run `sudo yum install jenkins` and finally `sudo systemctl enable jenkins` to start jenkins at boot, `sudo systemctl start jenkins` to start jenkins and `sudo systemctl status jenkins` to check the status of jenkins.
 
-- You can go to http://{EC2-public-ip}:8080 to launch jenkins dashboard.
+- Before that ensure that the security group attached to your `EC2` has inbound rules which opens port 8080.
+
+- You can go to http://{EC2-public-ip}:8080 to launch jenkins dashboard. 
 
 - Official Docs to install `Jenkins` on `AWS`. [Click Here](https://www.jenkins.io/doc/tutorials/tutorial-for-installing-jenkins-on-AWS/) 
 
@@ -98,8 +100,120 @@
 
   ![output](./images/output.png)
 
-# Now let's modify the Jenkinsfile to compile, test and package the spring application and add automatic build trigger on a push event in the repository.
+### Now let's modify the Jenkinsfile to compile, test and package the spring application and add automatic build trigger on a push event in the repository.
 
-- 
+- Update the Jenkinsfile and add compile, test and package stages.
 
-  
+```
+pipeline {
+  agent any
+  tools {
+    maven "maven-3.8"
+  }
+  stages {
+    stage("compile") {
+      steps {
+        sh "mvn compile"
+      }
+    }
+    stage("test") {
+      steps {
+        sh "mvn test"
+      }
+    }
+    stage("package") {
+      steps {
+        sh "mvn package"
+      }
+    }
+  }
+}
+```
+
+- Now, go to your GitHub repo and click on Settings. After that click on WebHooks and Add webhook.
+
+  ![add-webhook](./images/add-webhook.png)
+
+- Add the url where your jenkins server is running and append github-webhook/ at the end. Select just the push event for only push events and then click on Add webhook.
+
+  ![webhook](./images/webhook.png)
+
+- Now try to push some changes on your repository, you would see an automatic pipeline build trigger.
+
+## 3. Extend the pipeline to deploy to AWS EC2
+
+- Create and `EC2` instance with a key-pair for your spring application and install java 11 to run the spring application.
+
+- Install a plugin in `Jenkins` called SSH Agent and restart your jenkins.
+
+- Now go to `Manage Jenkins` and click on `Manage Credentials`. After that, click on Jenkins and click on Global credentials.
+
+  ![cred-jenkins](./images/cred-jenkins.png)
+
+- Click on Add Credentials. Then select SSH Username with private key from the drop down. Give it an ID and name. Add ec2-user in the username section.
+
+  ![key](./images/key.png)
+
+- Click on Add directly in the Private Key section, then copy the contents of pem file in the input field. Click Ok.
+
+  ![add-key](./images/add-key.png)
+
+- Make sure to add inbound rules, and open port 22 for `SSH` and port 8080 to access your spring application, to the security group attached to your web server `EC2` instance.
+
+- Update the Jenkinsfile
+
+```
+pipeline {
+  agent any
+  tools {
+    maven "maven-3.8"
+  }
+  stages {
+    stage("compile") {
+      steps {
+        sh "mvn compile"
+      }
+    }
+    stage("test") {
+      steps {
+        sh "mvn test"
+      }
+    }
+    stage("package") {
+      steps {
+        sh "mvn package"
+      }
+    }
+    stage("deploy") {
+      steps {
+        script {
+          def ec2Instance = "ec2-user@44.204.68.209"
+          def app = "target/spring-boot-hello-world-example-0.0.1-SNAPSHOT.jar"
+
+          sshagent(['ec2-server-key']) {
+            sh "scp -o StrictHostKeyChecking=no server-cmds.sh ${ec2Instance}:/home/ec2-user"
+            sh "scp -o StrictHostKeyChecking=no ${app} ${ec2Instance}:/home/ec2-user"
+            sh "ssh -o StrictHostKeyChecking=no ${ec2Instance} bash ./server-cmds.sh"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+- Add server-cmds.sh file in the root folder in your repository.
+
+```
+#!/usr/bin/env bash
+
+kill -9 $(cat /home/ec2-user/pid.file) || true
+
+echo "Starting Spring Application..."
+java -jar /home/ec2-user/spring-boot-hello-world-example-0.0.1-SNAPSHOT.jar --server.port=8080 > /home/ec2-user/helloworld.log &
+ps aux | grep "8080$" | awk '{print $2}' > /home/ec2-user/pid.file
+```
+
+- Change something in the code and push it to the GitHub repo. The pipeline will start to build automatically. Your application will be deployed to the `EC2` web server and started automatically.
+
+- You can visit your application at http://{web-server-public-ip}:8080
